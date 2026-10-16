@@ -2,20 +2,9 @@
 
 **Университет ИТМО · группа U4225 · 2026/2027**
 
-```text
-       .---------------------------------.
-       | > telegram_bot --start          |
-       | [OK] enthusiasm                 |
-       | [??] number of bugs             |
-       '----------------.----------------'
-                        \
-                      .-----.
-                      | o o |
-                      |  ^  |
-                      '-----'
-                       /| |\
-                        / \
-```
+[![Муха руководит, ChatGPT пашет — ASCII-art](docs/ascii-art/preview.svg)](https://roman-elchiyan.github.io/2026_2027_vibecoding_U4225_Elchiyan_R_R/ascii-art/)
+
+*Муха руководит процессом. ChatGPT пашет.* [Открыть детализированный ASCII-art](https://roman-elchiyan.github.io/2026_2027_vibecoding_U4225_Elchiyan_R_R/ascii-art/) · [Исходный текст (1600 × 440)](docs/ascii-art/vibe_coding_1600x440.txt)
 
 > Бот ещё не запущен, но репозиторий уже есть. Начало положено.
 
