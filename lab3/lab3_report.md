@@ -7,7 +7,7 @@ Year: 2026/2027
 Group: U4225  
 Author: Elchiyan Roman Romanovich  
 Lab: Lab3  
-Date of create: 16.10.2026  
+Date of create: 12.10.2026  
 Date of finished: 16.10.2026  
 Статус: рабочее развёртывание принято в режиме polling с платным ИИ и LiteLLM/PostgreSQL. Владелец подтвердил внешний поиск, GPT-6 Luna, расходы и лимиты в Telegram. Ngrok/webhook оставлены необязательными и в финальном запуске не включались.
 
