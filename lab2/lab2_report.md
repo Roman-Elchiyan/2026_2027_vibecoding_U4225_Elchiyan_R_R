@@ -7,7 +7,7 @@ Year: 2026/2027
 Group: U4225  
 Author: Elchiyan Roman Romanovich  
 Lab: Lab2  
-Date of create: 16.10.2026  
+Date of create: 12.10.2026  
 Date of finished: 16.10.2026  
 Статус: технический отчёт о реализованном и фактически проверенном. Дата защиты не указана.
 
