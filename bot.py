@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from functools import wraps
 import hashlib
 import logging
@@ -13,6 +14,7 @@ import secrets
 import sys
 import time
 import traceback
+import weakref
 
 from telegram import BotCommand, Update
 from telegram.error import BadRequest
@@ -74,7 +76,11 @@ def guarded(callback):
         user_id = update.effective_user.id if update.effective_user else 0
         actor = hashlib.sha256(LOG_SALT + str(user_id).encode()).hexdigest()[:12]
         try:
-            await callback(update, context)
+            # Different users stay responsive while one user awaits E5; their own form steps stay ordered.
+            locks = context.application.bot_data.setdefault("user_locks", weakref.WeakValueDictionary())
+            lock = locks.setdefault(user_id, asyncio.Lock())
+            async with lock:
+                await callback(update, context)
         except (ValueError, LookupError, CatalogError) as exc:
             logger.warning("event=action_rejected actor=%s error=%s", actor, type(exc).__name__)
             await update.effective_message.reply_text(str(exc))
@@ -97,6 +103,9 @@ async def error_handler(update: object, context) -> None:
 
 
 async def post_init(application: Application) -> None:
+    controller = application.bot_data["controller"]
+    controller.initialize_search()
+    await asyncio.to_thread(controller.db.cleanup_history)
     commands = [
         ("start", "Главное меню"), ("help", "Помощь"), ("search", "Поиск материалов"),
         ("saved", "Избранное"), ("cancel", "Отменить ввод"), ("status", "Состояние бота"),
@@ -107,8 +116,12 @@ async def post_init(application: Application) -> None:
     logger.info("event=polling_ready stage=lab1")
 
 
+async def post_shutdown(application: Application) -> None:
+    application.bot_data["controller"].search_service.close()
+
+
 def build_application(config: Config, controller: Controller) -> Application:
-    application = Application.builder().token(config.bot_token).concurrent_updates(False).post_init(post_init).build()
+    application = Application.builder().token(config.bot_token).concurrent_updates(8).post_init(post_init).post_shutdown(post_shutdown).build()
     application.bot_data["controller"] = controller
     for command, callback in {
         "start": controller.start, "help": controller.help, "search": controller.search,
@@ -139,7 +152,7 @@ def main() -> int:
         return 2
     try:
         configure_logging(config)
-        database = Database(config.db_path)
+        database = Database(config.db_path, config.history_max_per_user, config.history_days)
         database.initialize()
         source = CsvSource(config.csv_path)
         controller = Controller(config, database, source)

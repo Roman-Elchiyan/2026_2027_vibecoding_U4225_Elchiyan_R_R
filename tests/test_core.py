@@ -16,7 +16,7 @@ from budget import DisabledBudget
 from config import Config, ConfigError, ROOT, load_config, project_path
 from db import Database, SCHEMA_VERSION
 from handlers import Controller, card_keyboard, format_card
-from search import SearchFilters, SearchService, deduplicate
+from search import SearchFilters, SearchService, deduplicate, tokens
 from sources import CatalogError, CsvSource
 
 CATALOG = ROOT / "data/ploswater.csv"
@@ -72,7 +72,7 @@ class CoreTests(unittest.TestCase):
         year = self.first.year
         result = self.service.search(SearchFilters(topic="water", year_from=year, year_to=year))
         self.assertTrue(result.items)
-        expected = sum(m.year == year and "water" in (m.title + " " + (m.metadata.get("keywords") or "")).casefold() for m in self.items)
+        expected = sum(m.year == year and "water" in tokens(m.title + " " + (m.metadata.get("keywords") or "")) for m in self.items)
         self.assertEqual(result.total_count, expected)
         self.assertTrue(all(m.year == year for m in result.items))
 
@@ -132,7 +132,8 @@ class CoreTests(unittest.TestCase):
         self.assertLess(len(card), 4096)
         self.assertIn("&lt;", card)
         emoji_item = replace(item, title="💎" * 5000, authors=("💎" * 5000,), source="💎" * 5000,
-                             doi="💎" * 5000, material_type="💎" * 5000, metadata={"keywords": "💎" * 5000})
+                             doi="💎" * 5000, material_type="💎" * 5000, metadata={key: "💎"*5000 for key in
+                                ("keywords", "publication_date", "volume", "issue", "num_authors", "first_author_affiliation", "first_author_orcid")})
         self.assertLessEqual(len(format_card(emoji_item, 1).encode("utf-16-le")) // 2, 4096)
 
 

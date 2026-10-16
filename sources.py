@@ -44,20 +44,19 @@ class CsvSource:
         self.row_count = 0
 
     def load(self) -> list[Material]:
-        self.row_count = 0
-        self.supports_types = False
+        row_count = 0
         try:
             with self.path.open(encoding="utf-8-sig", newline="") as stream:
                 reader = csv.DictReader(stream, delimiter=",")
                 headers = set(reader.fieldnames or ())
                 if not {"paperid", "title", "published_year", "doi", "paper_url"} <= headers:
                     raise CatalogError("CSV имеет неподдерживаемую схему. Нужен исходный ploswater.csv.")
-                self.supports_types = "article_type" in headers
+                supports_types = "article_type" in headers
                 items = []
                 for row in reader:
                     if None in row or any(value is None for value in row.values()):
                         raise CatalogError("Повреждённая строка CSV. Восстановите исходный файл.")
-                    self.row_count += 1
+                    row_count += 1
                     metadata = {key: clean(value) for key, value in row.items()}
                     title = metadata["title"]
                     paper_id = metadata["paperid"]
@@ -83,6 +82,9 @@ class CsvSource:
                     ))
                 if not items:
                     raise CatalogError("CSV не содержит записей.")
+                # Publish completed diagnostics only; concurrent readers must not reset each other's count/types.
+                self.row_count = row_count
+                self.supports_types = supports_types
                 return items
         except (OSError, UnicodeError, csv.Error) as exc:
             raise CatalogError("Каталог CSV отсутствует или не читается. Проверьте data/ploswater.csv.") from exc

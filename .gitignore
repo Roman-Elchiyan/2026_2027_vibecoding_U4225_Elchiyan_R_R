@@ -69,3 +69,12 @@ Desktop.ini
 
 # Bot runtime, including SQLite WAL and rotating logs
 runtime/
+
+# Model caches and weights must remain local.
+.huggingface/
+huggingface/
+model_cache/
+models/
+*.safetensors
+*.pt
+*.pth

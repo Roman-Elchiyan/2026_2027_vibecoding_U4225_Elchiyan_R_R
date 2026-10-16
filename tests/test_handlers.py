@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from telegram import Update
@@ -14,11 +15,13 @@ from config import Config, ROOT
 from db import Database
 from handlers import Controller, AI, FEEDBACK, LIMITS
 from sources import CsvSource
+from semantic_search import SemanticSearch
 
 
 class OfflineTelegram(BaseRequest):
     def __init__(self):
         self.calls = []
+        self.not_modified_once = False
         self.bot_user = {"id": 9000, "is_bot": True, "first_name": "Offline", "username": "offline_test_bot"}
 
     @property
@@ -35,12 +38,15 @@ class OfflineTelegram(BaseRequest):
         action = url.rsplit("/", 1)[-1]
         params = request_data.parameters if request_data else {}
         self.calls.append((action, params))
+        if action == "editMessageText" and self.not_modified_once:
+            self.not_modified_once = False
+            return 400, json.dumps({"ok": False, "error_code": 400, "description": "Bad Request: Message is not modified"}).encode()
         if action == "getMe":
             result = self.bot_user
         elif action in ("setMyCommands", "answerCallbackQuery"):
             result = True
-        elif action in ("sendMessage", "editMessageReplyMarkup"):
-            result = {"message_id": len(self.calls), "date": 1, "from": self.bot_user,
+        elif action in ("sendMessage", "editMessageReplyMarkup", "editMessageText"):
+            result = {"message_id": int(params.get("message_id", len(self.calls))), "date": 1, "from": self.bot_user,
                       "chat": {"id": int(params["chat_id"]), "type": "private"},
                       "text": params.get("text", "")}
         else:
@@ -55,7 +61,7 @@ class TelegramFlowTests(unittest.IsolatedAsyncioTestCase):
         asyncio.get_running_loop().slow_callback_duration = 2
         self.temp = tempfile.TemporaryDirectory(dir=ROOT / "runtime/tests")
         self.path = Path(self.temp.name) / "flow.db"
-        self.config = Config(bot_token="123456:" + "x" * 30, db_path=self.path, admin_telegram_ids=frozenset({100}))
+        self.config = Config(bot_token="123456:" + "x" * 30, db_path=self.path, admin_telegram_ids=frozenset({100}), semantic_enabled=False)
         self.db = Database(self.path)
         self.db.initialize()
         self.controller = Controller(self.config, self.db, CsvSource(ROOT / "data/ploswater.csv"))
@@ -72,6 +78,7 @@ class TelegramFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.app.shutdown()
+        self.controller.search_service.close()
         self.temp.cleanup()
         self.assertEqual(self.errors, [], "Unexpected errors in real Telegram dispatch")
 
@@ -118,14 +125,25 @@ class TelegramFlowTests(unittest.IsolatedAsyncioTestCase):
         await self.send("water")
         calls = await self.send(callback="form:run")
         cards = [params for action, params in calls if params.get("parse_mode") == "HTML"]
-        self.assertEqual(len(cards), 5)
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(len(cards[0]["reply_markup"]["inline_keyboard"]), 6)
+        self.assertIn("5. Подробнее", str(cards[0]["reply_markup"]))
         search_id = self.latest_search()
         calls = await self.send(callback=f"p:{search_id}:1")
-        self.assertEqual(sum(params.get("parse_mode") == "HTML" for _, params in calls), 5)
-        await self.send(callback=f"f:a:{search_id}:0")
+        self.assertEqual(sum(action == "editMessageText" for action, _ in calls), 1)
+        self.assertEqual(self.messages(calls), [])
+        calls = await self.send(callback=f"d:{search_id}:0:0")
+        self.assertEqual(self.messages(calls), [])
+        detail = next(params for action, params in calls if action == "editMessageText")
+        self.assertIn("DOI:", detail["text"])
+        self.assertIn("К исходной странице", str(detail["reply_markup"]))
+        calls = await self.send(callback=f"f:a:{search_id}:0:0")
+        self.assertEqual(self.messages(calls), [])
+        self.assertEqual(sum(action == "editMessageText" for action, _ in calls), 1)
         item = self.db.result_item(100, search_id, 0)
         self.assertTrue(self.db.is_favorite(100, item.id))
         await self.app.shutdown()
+        self.controller.search_service.close()
         reopened = Database(self.path)
         self.db = reopened
         self.controller = Controller(self.config, reopened, CsvSource(ROOT / "data/ploswater.csv"))
@@ -138,11 +156,13 @@ class TelegramFlowTests(unittest.IsolatedAsyncioTestCase):
         self.app.add_error_handler(capture_error)
         self.assertTrue(reopened.is_favorite(100, item.id))
         calls = await self.send(callback=f"p:{search_id}:0")
-        self.assertEqual(sum(params.get("parse_mode") == "HTML" for _, params in calls), 5)
+        self.assertEqual(sum(action == "editMessageText" for action, _ in calls), 1)
+        self.assertEqual(self.messages(calls), [])
         calls = await self.send("/saved")
         self.assertEqual(sum(params.get("parse_mode") == "HTML" for _, params in calls), 1)
         saved_id = self.latest_search()
-        await self.send(callback=f"f:r:{saved_id}:0")
+        calls = await self.send(callback=f"f:r:{saved_id}:0")
+        self.assertEqual(self.messages(calls), [])
         self.assertFalse(reopened.is_favorite(100, item.id))
 
     async def test_years_types_and_cancel(self):
@@ -183,7 +203,7 @@ class TelegramFlowTests(unittest.IsolatedAsyncioTestCase):
         await self.send("water")
         await self.send(callback="form:run")
         search_id = self.latest_search()
-        for callback in (f"p:{search_id}:0", f"f:a:{search_id}:0"):
+        for callback in (f"p:{search_id}:0", f"f:a:{search_id}:0", f"d:{search_id}:0:0"):
             self.assertIn("Подборка недоступна", "\n".join(self.messages(await self.send(callback=callback, user_id=200))))
         self.assertEqual(self.db.counts()["favorites"], 0)
         self.assertIn("Кнопка устарела", "\n".join(self.messages(await self.send(callback="p:invalid:x"))))
@@ -192,6 +212,72 @@ class TelegramFlowTests(unittest.IsolatedAsyncioTestCase):
         output = self.messages(await self.send("/search", chat_type="group"))
         self.assertIn("личный чат", "\n".join(output))
         self.assertEqual(self.db.counts()["users"], 0)
+
+    async def test_admin_switch_is_authorized_persistent_and_external_flag_is_independent(self):
+        self.controller.search_service.semantic = SemanticSearch(self.controller.source, self.config, self.db,
+            SimpleNamespace(vectors=True, device="cpu"))
+        for command in ("admin:local:on", "admin:external:on", "admin:local:off"):
+            calls = await self.send(callback=command, user_id=200)
+            self.assertTrue(any(p.get("show_alert") for a, p in calls if a == "answerCallbackQuery"))
+        self.assertFalse(self.db.get_app_setting("local_semantic_enabled", False))
+        calls = await self.send(callback="admin:local:on")
+        self.assertEqual(self.messages(calls), [])
+        self.assertTrue(self.db.get_app_setting("local_semantic_enabled", False))
+        await self.send(callback="admin:external:on")
+        await self.send(callback="admin:local:off")
+        manager = SemanticSearch(self.controller.source, self.config, Database(self.path))
+        self.assertFalse(manager.enabled)
+        self.assertTrue(manager.external_enabled)
+
+    async def test_expired_history_callbacks_are_handled(self):
+        await self.send("/search")
+        await self.send("water")
+        await self.send(callback="form:run")
+        sid = self.latest_search()
+        with self.db.connect() as connection:
+            connection.execute("UPDATE searches SET created_at=datetime('now','-31 days') WHERE id=?", (sid,))
+        self.db.cleanup_history()
+        for callback in (f"p:{sid}:0", f"d:{sid}:0:0", f"f:a:{sid}:0:0"):
+            self.assertIn("срок хранения истёк", "\n".join(self.messages(await self.send(callback=callback))))
+
+    async def test_not_modified_is_harmless_and_saved_pages_edit_existing_message(self):
+        await self.send("/search")
+        await self.send("water")
+        await self.send(callback="form:run")
+        sid = self.latest_search()
+        self.transport.not_modified_once = True
+        calls = await self.send(callback=f"p:{sid}:0")
+        self.assertEqual(self.messages(calls), [])
+        for position in range(7):
+            self.db.set_favorite(100, sid, position, True)
+        calls = await self.send("/saved")
+        self.assertEqual(len(self.messages(calls)), 1)
+        saved_id = self.latest_search()
+        for callback in (f"p:{saved_id}:1", f"d:{saved_id}:5:1", f"f:r:{saved_id}:5:1", f"p:{saved_id}:1"):
+            calls = await self.send(callback=callback)
+            self.assertEqual(self.messages(calls), [])
+            self.assertEqual(sum(action == "editMessageText" for action, _ in calls), 1)
+
+    async def test_summary_limits_do_not_truncate_persisted_metadata(self):
+        await self.send("/search")
+        await self.send("water")
+        await self.send(callback="form:run")
+        sid = self.latest_search()
+        item = self.db.result_item(100, sid, 0)
+        item.title = "💧<&" * 5000
+        item.source = "💧<&" * 5000
+        item.authors = ("💧<&" * 5000,)
+        with self.db.connect() as connection:
+            connection.execute("UPDATE materials SET material_json=? WHERE id=?", (json.dumps(item.to_dict()), item.id))
+        for callback in (f"p:{sid}:0", f"d:{sid}:0:0"):
+            calls = await self.send(callback=callback)
+            message = next(p for a, p in calls if a == "editMessageText")
+            self.assertLessEqual(len(message["text"].encode("utf-16-le"))//2, 4096)
+            for row in message["reply_markup"]["inline_keyboard"]:
+                for button in row:
+                    if button.get("callback_data"):
+                        self.assertLessEqual(len(button["callback_data"].encode()), 64)
+        self.assertEqual(self.db.result_item(100, sid, 0).title, item.title)
 
     async def test_unavailable_filter_does_not_change_settings(self):
         await self.send("/search")
