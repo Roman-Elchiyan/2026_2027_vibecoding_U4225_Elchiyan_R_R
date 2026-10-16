@@ -1,0 +1,2 @@
+# Preserve the original dataset bytes and SHA-256 on Windows checkouts.
+data/ploswater.csv -text
