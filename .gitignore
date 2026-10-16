@@ -26,6 +26,8 @@ dist/
 credentials.json
 secrets.json
 service-account*.json
+# Local credential worksheet. Only .env.example is the public configuration template.
+env.lab23.template
 
 # Local SQLite databases and their journals
 *.db
@@ -78,3 +80,10 @@ models/
 *.safetensors
 *.pt
 *.pth
+*.argosmodel
+*.onnx
+*.gguf
+*.npy
+*.npz
+model.bin
+pytorch_model.bin

@@ -1,5 +1,5 @@
 # Verified with Python 3.13; tests use the standard-library unittest runner.
-python-telegram-bot==22.8
+python-telegram-bot[webhooks]==22.8
 python-dotenv==1.2.2
 rapidfuzz==3.14.1
 numpy==2.5.4
@@ -8,3 +8,5 @@ transformers==5.20.1
 # Preserve the verified Maxwell-compatible build; never upgrade torch automatically.
 --extra-index-url https://download.pytorch.org/whl/cu124
 torch==2.6.0+cu124
+httpx==0.28.1
+argostranslate==1.11.0

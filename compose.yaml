@@ -1,0 +1,43 @@
+name: brilliant-detective
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    env_file: runtime/postgres.env
+    volumes:
+      - litellm_data:/var/lib/postgresql/data
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "3"}
+  litellm:
+    image: ghcr.io/berriai/litellm-database:v1.105.1
+    restart: unless-stopped
+    env_file: runtime/litellm.env
+    command: [--config, /app/config.yaml, --port, "4000", --num_workers, "1"]
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "127.0.0.1:4000:4000"
+    networks: [database, egress]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "3"}
+volumes:
+  litellm_data:
+networks:
+  database: {internal: true}
+  egress:

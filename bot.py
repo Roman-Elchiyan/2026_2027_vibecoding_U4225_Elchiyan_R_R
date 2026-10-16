@@ -46,13 +46,14 @@ class SafeFormatter(logging.Formatter):
         result = super().format(record)
         for secret in self.secret_values:
             result = result.replace(secret, "[REDACTED]")
+        result = re.sub(r"\bsk-[A-Za-z0-9_-]+", "[REDACTED]", result)
         return re.sub(r"\b\d{5,}:[A-Za-z0-9_-]{20,}", "[REDACTED]", result)
 
 
 def configure_logging(config: Config) -> None:
     config.log_path.parent.mkdir(parents=True, exist_ok=True)
-    secret_values = tuple(value for key, value in os.environ.items() if any(word in key.upper() for word in ("TOKEN", "API_KEY", "MASTER_KEY", "PASSWORD", "SECRET")))
-    formatter = SafeFormatter(secret_values + (config.bot_token,))
+    secret_values = tuple(value for key, value in os.environ.items() if any(word in key.upper() for word in ("TOKEN", "API_KEY", "MASTER_KEY", "SALT_KEY", "PASSWORD", "SECRET", "WEBHOOK_PATH")))
+    formatter = SafeFormatter(secret_values + (config.bot_token, getattr(config, 'webhook_path', ''), getattr(config, 'webhook_secret', '')))
     stdout = logging.StreamHandler(sys.stdout)
     file_handler = RotatingFileHandler(config.log_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
     for handler in (stdout, file_handler):
@@ -80,7 +81,23 @@ def guarded(callback):
             locks = context.application.bot_data.setdefault("user_locks", weakref.WeakValueDictionary())
             lock = locks.setdefault(user_id, asyncio.Lock())
             async with lock:
-                await callback(update, context)
+                controller = context.application.bot_data.get("controller")
+                database = getattr(controller, "db", None)
+                persistent = hasattr(database, "claim_delivery") and update.update_id is not None
+                if persistent and not database.claim_delivery(update.update_id):
+                    if update.callback_query:
+                        await update.callback_query.answer()
+                    return
+                try:
+                    await callback(update, context)
+                except (ValueError, LookupError, CatalogError):
+                    if persistent: database.finish_delivery(update.update_id)
+                    raise
+                except BaseException:
+                    if persistent: database.finish_delivery(update.update_id, False)
+                    raise
+                else:
+                    if persistent: database.finish_delivery(update.update_id)
         except (ValueError, LookupError, CatalogError) as exc:
             logger.warning("event=action_rejected actor=%s error=%s", actor, type(exc).__name__)
             await update.effective_message.reply_text(str(exc))
@@ -106,31 +123,49 @@ async def post_init(application: Application) -> None:
     controller = application.bot_data["controller"]
     controller.initialize_search()
     await asyncio.to_thread(controller.db.cleanup_history)
+    if hasattr(controller.config, "run_mode"):
+        from deployment import polling_ready, watch_tunnel
+        application.bot_data['started_at'] = time.time()
+        if controller.config.run_mode == "polling":
+            await polling_ready(application.bot)
+        else:
+            application.bot_data['tunnel_monitor'] = asyncio.create_task(watch_tunnel(application, controller.config))
     commands = [
         ("start", "Главное меню"), ("help", "Помощь"), ("search", "Поиск материалов"),
         ("saved", "Избранное"), ("cancel", "Отменить ввод"), ("status", "Состояние бота"),
-        ("ai", "ИИ-поиск (Lab 2)"), ("limits", "Лимиты (Lab 2)"),
-        ("feedback", "Обратная связь (Lab 3)"), ("admin", "Диагностика администратора"),
+        ("ai", "Управление ИИ"), ("limits", "Бюджет ИИ"),
+        ("feedback", "Оценка результата"), ("admin", "Администратор"),
     ]
     await application.bot.set_my_commands([BotCommand(name, description) for name, description in commands])
-    logger.info("event=polling_ready stage=lab1")
+    logger.info("event=bot_ready stage=%s mode=%s", controller.config.stage, getattr(controller.config, 'run_mode', 'polling'))
 
 
 async def post_shutdown(application: Application) -> None:
-    application.bot_data["controller"].search_service.close()
+    monitor = application.bot_data.get('tunnel_monitor')
+    if monitor:
+        monitor.cancel()
+        await asyncio.gather(monitor, return_exceptions=True)
+    controller = application.bot_data["controller"]
+    if hasattr(controller, "close"):
+        await controller.close()
+    else:
+        controller.search_service.close()
 
 
 def build_application(config: Config, controller: Controller) -> Application:
+    admin_cmd, admin_cb = admin_command, admin_callback
+    if hasattr(controller, 'research'):
+        from lab_admin import admin_command as admin_cmd, admin_callback as admin_cb
     application = Application.builder().token(config.bot_token).concurrent_updates(8).post_init(post_init).post_shutdown(post_shutdown).build()
     application.bot_data["controller"] = controller
     for command, callback in {
         "start": controller.start, "help": controller.help, "search": controller.search,
         "saved": controller.saved, "cancel": controller.cancel, "status": controller.status,
-        "ai": controller.unavailable, "limits": controller.unavailable,
-        "feedback": controller.unavailable, "admin": admin_command,
+        "ai": getattr(controller, 'ai', controller.unavailable), "limits": getattr(controller, 'limits', controller.unavailable),
+        "feedback": getattr(controller, 'feedback', controller.unavailable), "admin": admin_cmd,
     }.items():
         application.add_handler(CommandHandler(command, guarded(callback)))
-    application.add_handler(CallbackQueryHandler(guarded(admin_callback), pattern=r"^admin:"))
+    application.add_handler(CallbackQueryHandler(guarded(admin_cb), pattern=r"^admin:"))
     application.add_handler(CallbackQueryHandler(guarded(controller.callback)))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, guarded(controller.text)))
     application.add_handler(MessageHandler(filters.ALL, guarded(controller.unknown)))
@@ -144,26 +179,70 @@ def main() -> int:
             stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="«Brilliant» detective — Lab 1")
     parser.add_argument("--check", action="store_true", help="Проверить локальную БД и CSV без Telegram и токена")
+    parser.add_argument("--stage", choices=("lab1", "lab2", "lab3"), default="lab3")
+    parser.add_argument("--mode", choices=("polling", "webhook"))
+    parser.add_argument("--external", action="store_true", help="Включить внешние научные API")
     args = parser.parse_args()
     try:
-        config = load_config(require_token=not args.check)
+        if args.stage == 'lab1':
+            config = load_config(require_token=not args.check)
+        else:
+            from lab_config import load_lab_config
+            config = load_lab_config(require_token=not args.check, mode=args.mode, external=True if args.external else None)
     except ConfigError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     try:
         configure_logging(config)
-        database = Database(config.db_path, config.history_max_per_user, config.history_days)
+        database_class = Database
+        controller_class = Controller
+        if args.stage != 'lab1':
+            from lab_storage import LabDatabase
+            from lab_handlers import LabController
+            database_class, controller_class = LabDatabase, LabController
+        database = database_class(config.db_path, config.history_max_per_user, config.history_days)
         database.initialize()
         source = CsvSource(config.csv_path)
-        controller = Controller(config, database, source)
+        controller = controller_class(config, database, source)
         if args.check:
             print(controller.status_text())
             source.load()
+            if hasattr(controller, 'close'): asyncio.run(controller.close())
             return 0 if database.health() else 1
         source.load()  # Fail early on a missing catalog, before contacting Telegram.
-        app = build_application(config, controller)
-        logger.info("event=bot_starting stage=lab1 records=%d", source.row_count)
-        app.run_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=False)
+        from deployment import single_instance, tunnel_url
+        from dataclasses import replace
+        with single_instance():
+            mode = getattr(config, 'run_mode', 'polling')
+            if mode == 'webhook':
+                try:
+                    public_url = asyncio.run(tunnel_url(config))
+                except ConfigError:
+                    logger.warning("event=ngrok_unavailable fallback=polling")
+                    mode = 'polling'
+                    config = replace(config, run_mode='polling')
+                    controller.config = config
+            # asyncio.run() closes the previous event loop; PTB needs its own loop on Windows.
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            app = build_application(config, controller)
+            logger.info("event=bot_starting stage=%s records=%d mode=%s", config.stage, source.row_count, mode)
+            if mode == 'webhook':
+                try:
+                    app.run_webhook(listen=config.webhook_host, port=config.webhook_port,
+                        url_path=config.webhook_path, webhook_url=public_url+'/'+config.webhook_path,
+                        secret_token=config.webhook_secret, allowed_updates=["message", "callback_query"],
+                        drop_pending_updates=False)
+                except Exception:
+                    logger.error("event=webhook_start_failed fallback=polling")
+                    app.bot_data['webhook_failed'] = True
+                if app.bot_data.get('webhook_failed'):
+                    config = replace(config, run_mode='polling')
+                    controller = controller_class(config, database, source)
+                    asyncio.set_event_loop(asyncio.new_event_loop())
+                    app = build_application(config, controller)
+                    app.run_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=False)
+            else:
+                app.run_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=False)
         return 0
     except Exception:
         logger.exception("event=startup_failed")

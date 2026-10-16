@@ -1,0 +1,22 @@
+model_list:
+  - model_name: research-basic
+    litellm_params:
+      model: openai/gpt-6-luna
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: research-complex
+    litellm_params:
+      model: openai/gpt-6.1-sol
+      api_key: os.environ/OPENAI_API_KEY
+litellm_settings:
+  num_retries: 0
+  request_timeout: 20
+  set_verbose: false
+  turn_off_message_logging: true
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false
+  disable_spend_logs: false
+  disable_error_logs: true
+  allow_requests_on_db_unavailable: false
+  background_health_checks: false
