@@ -1,6 +1,6 @@
 # Локальный гибридный поиск Lab 1
 
-Изменения выполнены в существующем боте. README и отчёт лабораторной не редактировались. Новые файлы: `semantic_search.py`, `benchmark_search.py`, `tests/test_search.py`, `tests/test_migration.py` и этот документ. Изменены `search.py`, `sources.py`, `db.py`, `config.py`, `handlers.py`, `admin.py`, `bot.py`, зависимости, пример конфигурации, `.gitignore`, существующие тесты и история промптов.
+Изменения выполнены в существующем боте. README и отчёт лабораторной не редактировались. Новые файлы: `semantic_search.py`, `benchmark_search.py`, `tests/lab1/test_search.py`, `tests/lab1/test_migration.py` и этот документ. Изменены `search.py`, `sources.py`, `db.py`, `config.py`, `handlers.py`, `admin.py`, `bot.py`, зависимости, пример конфигурации, `.gitignore`, существующие тесты и история промптов.
 
 ## Поиск и индекс
 
@@ -86,6 +86,8 @@ RSS процесса после запросов — 1317,35 MiB, пик RSS —
 .\.venv\Scripts\python.exe bot.py --check
 $env:RUN_E5_TESTS = '1'
 .\.venv\Scripts\python.exe -m unittest discover -v
+# Отдельно только Lab 1:
+.\.venv\Scripts\python.exe -m unittest discover -s tests/lab1 -v
 .\.venv\Scripts\python.exe benchmark_search.py
 .\.venv\Scripts\python.exe bot.py
 ```
