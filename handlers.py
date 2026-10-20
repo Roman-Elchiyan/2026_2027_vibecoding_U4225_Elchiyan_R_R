@@ -105,6 +105,12 @@ def card_keyboard(item: Material, search_id: str, position: int, saved: bool, pa
     url = safe_url(item.url) or safe_url("https://doi.org/" + item.doi if item.doi else None)
     if url and len(url) <= 1500:
         rows.append([InlineKeyboardButton("Открыть источник", url=url)])
+    full=safe_url(item.open_url)
+    if full and full!=url and len(full)<=1500:
+        rows.append([InlineKeyboardButton('Открытый полный текст',url=full)])
+    pdf=safe_url(item.metadata.get('pdf_url'))
+    if pdf and item.metadata.get('pdf_verified') and len(pdf)<=1500:
+        rows.append([InlineKeyboardButton('Открыть PDF',url=pdf)])
     return InlineKeyboardMarkup(rows)
 
 

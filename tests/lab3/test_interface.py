@@ -219,9 +219,10 @@ class InterfaceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_same_paid_search_plan_uses_same_identity(self):
         self.db.register(100)
-        f = ResearchFilters(topic='water supply',sources=('crossref',),ai_enabled=True)
+        self.controller.config = replace(self.config, ai_enabled=True)
+        f = ResearchFilters(topic='water supply',sources=('crossref',),ai_enabled=True,ai_search=True)
         self.controller.ai_service.plan = AsyncMock(return_value={'query':'water supply','sources':['crossref']})
-        async def research(filters):
+        async def research(filters, **kwargs):
             from uuid import uuid4
             return SearchResult([self.item],[],uuid4().hex,1)
         self.controller.research.search = research

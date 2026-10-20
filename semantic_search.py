@@ -261,7 +261,7 @@ class SemanticSearch:
         def run():
             try:
                 result = function(*args)
-                limit = self.config.semantic_build_timeout if operation == "prepare" else self.config.semantic_timeout
+                limit = self._time_limit(operation)
                 with self._lock:
                     if generation == self._generation and perf_counter()-self._started > limit:
                         self.circuit = "превышено время обработки"
@@ -276,15 +276,20 @@ class SemanticSearch:
         threading.Thread(target=run, name="e5-worker", daemon=True).start()
         return future
 
+    def _time_limit(self, operation):
+        if operation=='prepare':return self.config.semantic_build_timeout
+        if operation=='external':return getattr(self.config,'external_semantic_timeout',self.config.semantic_timeout)
+        return self.config.semantic_timeout
+
     def start(self):
-        if self.enabled and not self.circuit:
+        if (self.enabled or self.external_enabled) and not self.circuit:
             self._submit("prepare", self.engine.prepare)
 
     def state(self) -> str:
         with self._lock:
             busy = self._future is not None and not self._future.done()
             if busy:
-                limit = self.config.semantic_build_timeout if self._operation == "prepare" else self.config.semantic_timeout
+                limit = self._time_limit(self._operation)
                 if perf_counter()-self._started > limit:
                     if not self.circuit:
                         logger.warning("event=e5_circuit_open operation=%s reason=timeout", self._operation)
@@ -302,6 +307,12 @@ class SemanticSearch:
         self.db.set_app_setting(key, enabled)
         if external:
             self.external_enabled = enabled
+            if enabled:
+                with self._lock:
+                    self._generation += 1
+                    self.circuit = ''
+                if self.engine.vectors is None:
+                    self.start()
             return
         with self._lock:
             self._generation += 1

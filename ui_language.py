@@ -12,6 +12,16 @@ LABELS = {
     'Неизвестно':'Unknown','Русский':'Russian','Английский':'English','Готово':'Done','Релевантность источника':'Provider relevance',
     'Сначала новые':'Newest first','Всю выдачу':'Entire result set','Конкретную публикацию':'Specific publication',
     'Добавить комментарий':'Add comment','Запросить увеличение':'Request more budget','Выключить ИИ':'Disable AI','Включить ИИ':'Enable AI',
+    'ИИ-поиск: вкл.':'AI search: on','ИИ-поиск: выкл.':'AI search: off',
+    'Показать частично подходящие':'Show partially relevant', 'Комментарий':'Comment',
+    'Без оценки':'No rating', 'Отправить отзыв':'Submit feedback', 'Отмена':'Cancel', 'Изменить отзыв':'Edit feedback',
+    'Расширенный веб-поиск':'Extended web search',
+    'Показать неподтверждённые':'Show unconfirmed candidates',
+    'Предварительный ранжированный список':'Preliminary ranked candidates',
+    'Измерения и допустимые коды':'Dimensions and allowed codes',
+    'Получить значения':'Get observations','Территории':'Territories',
+    'Измерения ряда':'Series dimensions','Точный ключ ряда':'Exact series key','Статистика':'Statistics',
+    'Тема или название':'Topic or title','Тематический поиск':'Topic search','Поиск по названию':'Title search',
 }
 
 
@@ -24,6 +34,8 @@ def markup_english(markup):
             data = button.to_dict()
             text = data['text']
             if text.endswith('. Подробнее'): text = text.replace('. Подробнее','. Details')
+            elif text.startswith(('✓ ', '○ ')) and text[2:] in ('Работа бота','Результаты поиска','Конкретная публикация'):
+                text = text[:2] + {'Работа бота':'Bot behavior','Результаты поиска':'Search results','Конкретная публикация':'Specific publications'}[text[2:]]
             else: text = LABELS.get(text,text)
             data['text'] = text
             translated.append(InlineKeyboardButton(**data))

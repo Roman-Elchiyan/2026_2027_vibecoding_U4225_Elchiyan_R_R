@@ -136,6 +136,7 @@ async def post_init(application: Application) -> None:
         ("ai", "Управление ИИ"), ("limits", "Бюджет ИИ"),
         ("feedback", "Оценка результата"), ("admin", "Администратор"),
     ]
+    if hasattr(controller,'stats'):commands.append(('stats','Статистические показатели'))
     await application.bot.set_my_commands([BotCommand(name, description) for name, description in commands])
     logger.info("event=bot_ready stage=%s mode=%s", controller.config.stage, getattr(controller.config, 'run_mode', 'polling'))
 
@@ -163,6 +164,7 @@ def build_application(config: Config, controller: Controller) -> Application:
         "saved": controller.saved, "cancel": controller.cancel, "status": controller.status,
         "ai": getattr(controller, 'ai', controller.unavailable), "limits": getattr(controller, 'limits', controller.unavailable),
         "feedback": getattr(controller, 'feedback', controller.unavailable), "admin": admin_cmd,
+        **({"stats": controller.stats} if hasattr(controller, 'stats') else {}),
     }.items():
         application.add_handler(CommandHandler(command, guarded(callback)))
     application.add_handler(CallbackQueryHandler(guarded(admin_cb), pattern=r"^admin:"))

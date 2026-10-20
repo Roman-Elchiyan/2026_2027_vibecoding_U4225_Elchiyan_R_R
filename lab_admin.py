@@ -1,10 +1,13 @@
 """Every admin command, callback and text step checks the allowlist."""
 import asyncio
 import logging
+import hashlib
+import json
 from uuid import uuid4
 
 from telegram import InlineKeyboardButton as B, InlineKeyboardMarkup as K
-from handlers import clipped
+from handlers import clipped, html_text
+from feedback_ui import CATEGORY_LABELS
 from litellm_admin import BudgetUnavailable
 
 logger = logging.getLogger(__name__)
@@ -49,7 +52,8 @@ async def admin_callback(update,context):
             text += "\nLiteLLM/PostgreSQL: readiness не подтверждён."
         with app.db.connect() as c:
             counts = c.execute("SELECT COUNT(*),AVG(rating),SUM(handled=0) FROM feedback").fetchone()
-        text += f"\nОтзывы: {counts[0]}, средняя оценка: {float(counts[1] or 0):.2f}, не обработано: {counts[2] or 0}."
+        average = f'{counts[1]:.2f}' if counts[1] is not None else 'нет оценок'
+        text += f"\nОтзывы: {counts[0]}, средняя оценка: {average}, не обработано: {counts[2] or 0}."
         return await q.message.reply_text(text)
     if action in ("local","external"):
         if app.search_service.semantic is None: app.initialize_search()
@@ -145,7 +149,7 @@ async def admin_callback(update,context):
         offset = max(0,int(parts[2]))
         reviews = app.db.feedback_list(offset)
         selected = app.db.cache_get("review_selection:"+str(uid)) or []
-        rows = [[B(f"{r['rating']}/5 · {'обработан' if r['handled'] else 'новый'} · {clipped(r['comment'],30)}",callback_data="admin:review:"+r['id']),
+        rows = [[B(f"{str(r['rating']) + '/5' if r['rating'] else 'без оценки'} · {'обработан' if r['handled'] else 'новый'} · {clipped(r['comment'],30)}",callback_data="admin:review:"+r['id']),
                  B("✓" if r['id'] in selected else "+ анализ",callback_data="admin:select:"+r['id'])] for r in reviews]
         if offset: rows.append([B("Назад",callback_data=f"admin:reviews:{max(0,offset-10)}")])
         if len(reviews)==10: rows.append([B("Далее",callback_data=f"admin:reviews:{offset+10}")])
@@ -153,7 +157,11 @@ async def admin_callback(update,context):
         return await q.message.reply_text("Отзывы: выберите запись для ответа или + для анализа.",reply_markup=K(rows))
     if action == "review":
         r = app.db.feedback_get(parts[2])
-        return await q.message.reply_text(f"Автор: {r['user_id']}\nВыдача: {r['search_id']}\nМатериал: {r['material_id'] or 'вся выдача'}\nОценка: {r['rating']}/5\n{r['comment']}\nОтвет: {r['reply'] or 'нет'}",
+        detail = (f"Автор: {r['user_id']}\nКатегории: {', '.join(CATEGORY_LABELS[c] for c in r['categories'])}\n"
+            f"Выдача: {r['search_id'] or 'общий отзыв без поиска'}\nМатериалы: {clipped(', '.join(r['material_ids']) or 'не выбраны', 500)}\n"
+            f"Оценка: {str(r['rating']) + '/5' if r['rating'] else 'без оценки'}\nСтатус: {'обработан' if r['handled'] else 'новый'}\n"
+            f"{r['comment']}\nОтвет: {r['reply'] or 'нет'}")
+        return await q.message.reply_text(html_text(detail, 3800), parse_mode='HTML',
             reply_markup=K([[B("Ответить автору",callback_data="admin:reply:"+r['id'])],
                 [B("Отметить обработанным" if not r['handled'] else "Вернуть в необработанные",callback_data=f"admin:handled:{r['id']}:{int(not r['handled'])}")]]))
     if action == "handled":
@@ -178,7 +186,24 @@ async def admin_callback(update,context):
         selected = app.db.cache_get("review_selection:"+str(uid)) or []
         if not selected: raise ValueError("Сначала выберите отзывы.")
         rows = [app.db.feedback_get(fid) for fid in selected]
-        output = await app.ai_service.analyze(uid,rows,"feedback:"+":".join(r['id']+r['updated_at'] for r in rows))
+        nonce = uuid4().hex[:16]
+        digest = hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        app.db.cache_put(f'analysis-confirm:{uid}:{nonce}', {'ids': selected, 'digest': digest}, 600)
+        return await q.message.reply_text(f'Платный анализ {len(rows)} отзывов: категории, оценки, обезличенные комментарии, запросы и короткие выдержки выбранных публикаций из сохранённой выдачи. '
+            'Используется отдельный административный бюджет LiteLLM. Код, права и лимиты не изменяются. Подтвердите расход.',
+            reply_markup=K([[B('Подтвердить платный анализ', callback_data='admin:analyzeconfirm:' + nonce)]]))
+    if action == 'analyzeconfirm':
+        key = f'analysis-confirm:{uid}:{parts[2]}'
+        confirmation = app.db.cache_get(key)
+        if not confirmation or confirmation.get('sent'):
+            raise ValueError('Подтверждение истекло или запрос уже отправлен. Автоматического повтора нет.')
+        rows = [app.db.feedback_get(fid) for fid in confirmation['ids']]
+        digest = hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        if digest != confirmation['digest']:
+            raise ValueError('Отзывы изменились. Выберите их и подтвердите анализ заново.')
+        confirmation['sent'] = True
+        app.db.cache_put(key, confirmation, 600)
+        output = await app.ai_service.analyze(uid, rows, 'feedback:' + digest)
         app.db.audit(uid,"feedback_analysis")
         return await q.message.reply_text(clipped(output,3800))
     raise ValueError("Кнопка администратора устарела.")

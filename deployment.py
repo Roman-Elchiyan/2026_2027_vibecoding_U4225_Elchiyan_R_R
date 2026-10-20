@@ -72,12 +72,18 @@ async def tunnel_url(config,transport=None):
 
 async def watch_tunnel(application,config):
     failures = 0
+    last_seen_error=application.bot_data.get('started_at',0)
     while True:
         await asyncio.sleep(15)
         try:
             await tunnel_url(config)
             info = await application.bot.get_webhook_info()
-            if info.last_error_date and info.last_error_date.timestamp() > application.bot_data.get('started_at',0):
+            error_time=info.last_error_date.timestamp() if info.last_error_date else 0
+            # Telegram retains last_error after recovery. Only a newly observed
+            # error is evidence for this interval; one stale timestamp cannot
+            # trigger a later fallback on its own.
+            if error_time > last_seen_error:
+                last_seen_error=error_time
                 failures += 1
             else: failures = 0
         except Exception:

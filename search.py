@@ -90,6 +90,8 @@ class SearchResult:
     warnings: list[str]
     search_id: str
     total_count: int
+    partial_items: list[Material] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def search_text(item: Material) -> str:

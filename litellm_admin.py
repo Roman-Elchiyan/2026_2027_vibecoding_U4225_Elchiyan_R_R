@@ -14,8 +14,9 @@ class BudgetUnavailable(ValueError):
 
 
 class LiteLLMAdmin:
-    def __init__(self,db,config,transport=None):
+    def __init__(self,db,config,transport=None,analysis_scope='feedback-analysis'):
         self.db,self.config = db,config
+        self.analysis_scope = analysis_scope
         self.client = httpx.AsyncClient(base_url=config.litellm_url,timeout=config.llm_timeout,transport=transport)
         self.locks = {}
 
@@ -33,7 +34,7 @@ class LiteLLMAdmin:
             raise BudgetUnavailable("LiteLLM временно недоступен. Бесплатный поиск доступен; остаток бюджета неизвестен.") from None
 
     async def _ensure(self,user_id,admin=False):
-        uid = "feedback-analysis" if admin else "telegram-"+str(user_id)
+        uid = self.analysis_scope if admin else "telegram-"+str(user_id)
         with self.db.connect() as c:
             row = c.execute("SELECT secret,ready FROM llm_keys WHERE user_id=?", (uid,)).fetchone()
             if not row:

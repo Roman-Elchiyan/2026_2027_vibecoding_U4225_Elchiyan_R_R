@@ -5,7 +5,7 @@ from pathlib import Path
 import socket
 import tempfile
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock,Mock,patch
 
 import httpx
 from telegram import Update
@@ -26,6 +26,26 @@ class WebhookTransport(OfflineTelegram):
 
 
 class DeploymentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_historical_webhook_error_cannot_trigger_fallback_twice(self):
+        from datetime import datetime,timezone
+        from types import SimpleNamespace
+        from deployment import watch_tunnel
+        info=SimpleNamespace(last_error_date=datetime.fromtimestamp(11,timezone.utc))
+        app=SimpleNamespace(bot_data={'started_at':10},bot=SimpleNamespace(get_webhook_info=AsyncMock(return_value=info)),stop_running=Mock())
+        with patch('deployment.tunnel_url',new=AsyncMock()),patch('deployment.asyncio.sleep',new=AsyncMock(side_effect=[None,None,asyncio.CancelledError()])):
+            with self.assertRaises(asyncio.CancelledError):await watch_tunnel(app,LabConfig())
+        app.stop_running.assert_not_called()
+
+    async def test_two_new_webhook_errors_still_trigger_polling_fallback(self):
+        from datetime import datetime,timezone
+        from types import SimpleNamespace
+        from deployment import watch_tunnel
+        infos=[SimpleNamespace(last_error_date=datetime.fromtimestamp(n,timezone.utc)) for n in (11,12)]
+        app=SimpleNamespace(bot_data={'started_at':10},bot=SimpleNamespace(get_webhook_info=AsyncMock(side_effect=infos)),stop_running=Mock())
+        with patch('deployment.tunnel_url',new=AsyncMock()),patch('deployment.asyncio.sleep',new=AsyncMock()):
+            await watch_tunnel(app,LabConfig())
+        app.stop_running.assert_called_once()
+        self.assertTrue(app.bot_data['webhook_failed'])
     async def test_real_ptb_http_server_checks_secret_header_and_path(self):
         transport = WebhookTransport()
         app = Application.builder().token('123456:'+'x'*30).request(transport).get_updates_request(transport).build()

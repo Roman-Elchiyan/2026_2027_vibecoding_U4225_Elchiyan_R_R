@@ -93,12 +93,19 @@ class ResearchTests(unittest.IsolatedAsyncioTestCase):
         reopened.initialize()
         self.assertTrue(reopened.is_favorite(100,external.id))
         self.assertEqual(reopened.get_page(100,result.search_id,0)[0][1].access_status,'open')
+        favorites=reopened.saved_search(100)
+        self.assertEqual(reopened.result_item(100,favorites,0).source,'Crossref')
+        self.assertEqual(reopened.result_item(100,favorites,0).access_status,'open')
+        reopened.set_favorite(100,favorites,0,False)
+        with reopened.connect() as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM favorite_payloads').fetchone()[0],0)
 
     async def test_translation_uses_english_for_api(self):
         self.translator.query = AsyncMock(return_value=('water supply',''))
         self.service.sources['crossref'].search = AsyncMock(return_value=[self.item])
         await self.service.search(ResearchFilters(topic='водоснабжение',sources=('crossref',)))
-        self.assertEqual(self.service.sources['crossref'].search.call_args.args[0],'water supply')
+        calls=self.service.sources['crossref'].search.call_args_list
+        self.assertEqual(calls[0].args[0],'water supply')
+        self.assertEqual([c.args[0] for c in calls],['water supply','водоснабжение'])
 
     async def test_no_openai_or_proxy_required_for_local(self):
         result = await self.service.search(ResearchFilters(topic='water',sources=('local',)))
@@ -165,7 +172,7 @@ class NormalizationTests(unittest.TestCase):
             'abstract_inverted_index':{'Water':[0],'quality':[1]},'open_access':{'is_oa':False}})
         self.assertEqual(item.abstract_or_snippet,'Water quality')
         self.assertEqual(item.doi,'10.1234/x')
-        self.assertEqual(item.access_status,'restricted')
+        self.assertIsNone(item.access_status)  # no OA copy is not evidence of a paywall
 
     def test_crossref_does_not_infer_access_from_license(self):
         item = Crossref.normalize({'DOI':'10.1234/x','title':['<i>Water</i>'],'published':{'date-parts':[[2023]]},'license':[{'URL':'https://example.org'}]})

@@ -1,0 +1,295 @@
+{
+  "schema": 1,
+  "scope": "Metadata-only, engineering relevance judgments; not expert full-text review.",
+  "queries": [
+    {
+      "id": "water-ru",
+      "query": "Водоснабжение и качество питьевой воды",
+      "translation": "water supply and drinking water quality",
+      "sources": [
+        "local"
+      ],
+      "family": "water-quality",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "water-en",
+      "query": "water supply and drinking water quality",
+      "translation": "water supply and drinking water quality",
+      "sources": [
+        "local"
+      ],
+      "family": "water-quality",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "groundwater-en",
+      "query": "Groundwater quality",
+      "translation": "groundwater quality",
+      "sources": [
+        "local"
+      ],
+      "family": "groundwater",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "groundwater-ru",
+      "query": "Качество подземных вод",
+      "translation": "groundwater quality",
+      "sources": [
+        "local"
+      ],
+      "family": "groundwater",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "water-economy-en",
+      "query": "Water supply economic costs",
+      "translation": "water supply economic costs",
+      "sources": [
+        "worldbank"
+      ],
+      "family": "water-economy",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "water-economy-ru",
+      "query": "Экономика и затраты водоснабжения",
+      "translation": "water supply economic costs",
+      "sources": [
+        "worldbank"
+      ],
+      "family": "water-economy",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "cotton-en",
+      "query": "Cotton production technology and economic efficiency",
+      "translation": "Cotton production technology and economic efficiency",
+      "sources": [
+        "crossref"
+      ],
+      "family": "cotton-economy",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "cotton-ru",
+      "query": "Технологии и экономическая эффективность производства хлопка",
+      "translation": "Cotton production technology and economic efficiency",
+      "sources": [
+        "crossref"
+      ],
+      "family": "cotton-economy",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "cotton-irrigation-en",
+      "query": "Cotton irrigation productivity",
+      "translation": "cotton irrigation productivity",
+      "sources": [
+        "crossref"
+      ],
+      "family": "cotton-irrigation",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "cotton-irrigation-ru",
+      "query": "Орошение и урожайность хлопка",
+      "translation": "cotton irrigation productivity",
+      "sources": [
+        "crossref"
+      ],
+      "family": "cotton-irrigation",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "proteins-en",
+      "query": "Alternative proteins sensory taste",
+      "translation": "alternative proteins sensory taste",
+      "sources": [
+        "crossref"
+      ],
+      "family": "proteins",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "proteins-ru",
+      "query": "Вкус и сенсорные характеристики альтернативных белков",
+      "translation": "alternative proteins sensory taste",
+      "sources": [
+        "crossref"
+      ],
+      "family": "proteins",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "solar-en",
+      "query": "Solar energy economic costs",
+      "translation": "solar energy economic costs",
+      "sources": [
+        "crossref"
+      ],
+      "family": "solar",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "solar-ru",
+      "query": "Экономика и затраты солнечной энергетики",
+      "translation": "solar energy economic costs",
+      "sources": [
+        "crossref"
+      ],
+      "family": "solar",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "supply-en",
+      "query": "Supply chain economic costs",
+      "translation": "supply chain economic costs",
+      "sources": [
+        "crossref"
+      ],
+      "family": "supply",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "supply-ru",
+      "query": "Экономика и затраты цепочек поставок",
+      "translation": "supply chain economic costs",
+      "sources": [
+        "crossref"
+      ],
+      "family": "supply",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "india-en",
+      "query": "Water supply economic costs in India",
+      "translation": "water supply economic costs in India",
+      "sources": [
+        "worldbank"
+      ],
+      "family": "india",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "microplastics-en",
+      "query": "Microplastics drinking water quality",
+      "translation": "microplastics drinking water quality",
+      "sources": [
+        "local"
+      ],
+      "family": "microplastics",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "microplastics-ru",
+      "query": "Микропластик и качество питьевой воды",
+      "translation": "microplastics drinking water quality",
+      "sources": [
+        "local"
+      ],
+      "family": "microplastics",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "ambiguous-water",
+      "query": "water",
+      "translation": "water",
+      "sources": [
+        "local"
+      ],
+      "family": "broad-water",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "ambiguous-cotton",
+      "query": "cotton",
+      "translation": "cotton",
+      "sources": [
+        "crossref"
+      ],
+      "family": "broad-cotton",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "doi-positive",
+      "query": "10.1371/journal.pwat.0000423",
+      "translation": "10.1371/journal.pwat.0000423",
+      "sources": [
+        "local"
+      ],
+      "family": "doi",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "doi-negative",
+      "query": "10.1371/journal.pwat.9999999",
+      "translation": "10.1371/journal.pwat.9999999",
+      "sources": [
+        "local"
+      ],
+      "family": "doi-negative",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "negative-quantum",
+      "query": "quantum entanglement in superconducting qubits",
+      "translation": "quantum entanglement in superconducting qubits",
+      "sources": [
+        "local"
+      ],
+      "family": "negative",
+      "split": "evaluation",
+      "max_results": 10
+    },
+    {
+      "id": "cotton-fibres",
+      "query": "Cotton fibres wastewater treatment",
+      "translation": "cotton fibres wastewater treatment",
+      "sources": [
+        "crossref"
+      ],
+      "family": "cotton-fibres",
+      "split": "calibration",
+      "max_results": 10
+    },
+    {
+      "id": "datasets",
+      "query": "Groundwater quality dataset",
+      "translation": "groundwater quality dataset",
+      "sources": [
+        "datacite"
+      ],
+      "family": "datasets",
+      "split": "evaluation",
+      "max_results": 10,
+      "material_types": [
+        "Dataset"
+      ]
+    }
+  ]
+}
