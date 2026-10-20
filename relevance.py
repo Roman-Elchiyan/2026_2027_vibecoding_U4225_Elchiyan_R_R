@@ -1,5 +1,6 @@
 """Evidence-based tiers; model logits are ranks, never relevance probabilities."""
 from dataclasses import dataclass, replace
+from datetime import datetime
 import json
 import re
 from pathlib import Path
@@ -13,12 +14,76 @@ def material_text(item):
         str(item.metadata.get('keywords') or ''))))[:10000]
 
 
-def merge_candidates(batches):
-    """Fuse ranks once per batch; join DOI/PMID/PMCID bridges across providers."""
+def _zenodo_version_groups(entries):
+    """Only explicit repository version relationships can bridge different DOIs."""
+    parents, concepts = {}, set()
+
+    def doi(value):
+        value = normalize_doi(value) if isinstance(value, str) else None
+        return value if value and re.fullmatch(r'10\.5281/zenodo\.\d+', value) else None
+
+    def root(value):
+        parents.setdefault(value, value)
+        while parents[value] != value:
+            parents[value] = parents[parents[value]]
+            value = parents[value]
+        return value
+
+    def join(a, b):
+        a, b = root(a), root(b)
+        parents[max(a, b)] = min(a, b)
+
+    for _, _, item in entries:
+        own = doi(item.doi)
+        if not own or item.metadata.get('category') == 'statistics':
+            continue
+        concept = doi(item.metadata.get('concept_doi'))
+        if concept:
+            join(own, concept)
+            concepts.add(concept)
+        related = item.metadata.get('related_identifiers') or []
+        for relation in related if isinstance(related, list) else []:
+            if not isinstance(relation, dict):
+                continue
+            kind = relation.get('relationType') or relation.get('relation') or relation.get('relation_type')
+            if isinstance(kind, dict):
+                kind = kind.get('id')
+            kind = str(kind or '').casefold()
+            target = doi(relation.get('relatedIdentifier') or relation.get('identifier'))
+            if target and kind in ('isversionof', 'hasversion', 'isnewversionof', 'ispreviousversionof'):
+                join(own, target)
+                if kind == 'isversionof': concepts.add(target)
+                elif kind == 'hasversion': concepts.add(own)
+        # Previously collapsed results retain their proven DOI membership.
+        for member in item.metadata.get('version_dois') or []:
+            target = doi(member)
+            if target: join(own, target)
+    return {value: root(value) for value in parents}, concepts
+
+
+def _version_order(item, concepts):
+    try:
+        created = datetime.fromisoformat(str(item.metadata.get('version_created') or '').replace('Z', '+00:00')).timestamp()
+    except (ValueError, OverflowError, OSError):
+        created = 0
+    version = re.fullmatch(r'v?(\d+(?:\.\d+)*)', str(item.metadata.get('version') or ''))
+    number = tuple(map(int, version[1].split('.'))) if version else ()
+    doi = normalize_doi(item.doi) or ''
+    record = re.fullmatch(r'10\.5281/zenodo\.(\d+)', doi)
+    return doi not in concepts, created, number, int(record[1]) if record else 0
+
+
+def merge_candidates(batches, *, collapse_versions=True):
+    """Fuse provider ranks, preserving exact IDs and explicit Zenodo version families."""
     entries = [(batch_id, rank, item) for batch_id, batch in enumerate(batches)
         for rank, item in enumerate(batch, 1)]
+    version_groups, concepts = _zenodo_version_groups(entries) if collapse_versions else ({}, set())
     parent = list(range(len(entries)))
     dois = [{normalize_doi(m.doi)} - {None, ''} for _, _, m in entries]
+    if collapse_versions:
+        for i, (_, _, item) in enumerate(entries):
+            dois[i].update(d for value in item.metadata.get('version_dois') or []
+                           if isinstance(value, str) and (d := normalize_doi(value)) in version_groups)
     aliases = {}
 
     def root(i):
@@ -31,6 +96,7 @@ def merge_candidates(batches):
         keys = ['id:' + item.id]
         doi = normalize_doi(item.doi)
         if doi: keys.append('doi:' + doi)
+        if doi in version_groups: keys.append('zenodo-work:' + version_groups[doi])
         for field in ('pmid', 'pmcid', 'arxiv_id'):
             value = str(item.metadata.get(field) or '').strip()
             if value:
@@ -58,27 +124,41 @@ def merge_candidates(batches):
             for owner in owners:
                 a, b = root(i), root(owner)
                 if a == b: continue
-                # Conflicting registered DOIs are never joined through a URL,
-                # title, or an inconsistent secondary identifier.
-                if dois[a] and dois[b] and dois[a] != dois[b]: continue
+                # Different DOIs are joined only inside a proven version family.
+                identities = {version_groups.get(d, d) for d in dois[a] | dois[b]}
+                if len(identities) > 1: continue
                 first, second = sorted((a, b))
                 parent[second] = first
                 dois[first] |= dois[second]
             owners.append(i)
-    groups, ranks, provenance = {}, {}, {}
+    groups, ranks, provenance, versions = {}, {}, {}, {}
     for i, (batch_id, rank, item) in enumerate(entries):
         key = root(i)
         # Query variants are alternative retrievals of one provider, not extra
         # independent votes. Repeated hits cannot multiply that source's weight.
         provider = item.source.casefold() or item.id.split(':', 1)[0]
         ranks.setdefault(key, {})[provider] = min(rank, ranks.get(key, {}).get(provider, rank))
-        origin = {'source': item.source, 'id': item.id, 'url': item.url}
+        origin = {'source': item.source, 'id': item.id, 'url': item.url, 'doi': normalize_doi(item.doi)}
         origins = provenance.setdefault(key, [])
+        for previous in item.metadata.get('provenance') or []:
+            if isinstance(previous, dict) and previous not in origins: origins.append(previous)
         if origin not in origins: origins.append(origin)
+        version = {'doi': normalize_doi(item.doi), 'id': item.id, 'source': item.source,
+                   'url': item.url, 'year': item.year, 'version': item.metadata.get('version')}
+        members = versions.setdefault(key, [])
+        for previous in item.metadata.get('versions') or []:
+            if isinstance(previous, dict) and previous.get('doi') and not any(v['doi'] == previous['doi'] for v in members):
+                members.append(previous)
+        if version['doi'] and not any(v['doi'] == version['doi'] for v in members): members.append(version)
         if key not in groups:
             groups[key] = replace(item, doi=normalize_doi(item.doi))
             continue
         old = groups[key]
+        if old.doi and item.doi and normalize_doi(old.doi) != normalize_doi(item.doi):
+            # A selected version must keep its own abstract, access and links.
+            preferred = max((old, item), key=lambda m: _version_order(m, concepts))
+            groups[key] = replace(preferred, doi=normalize_doi(preferred.doi), metadata=dict(preferred.metadata))
+            continue
         metadata = dict(item.metadata)
         metadata.update({k: v for k, v in old.metadata.items() if v not in (None, '', [])})
         groups[key] = replace(old, doi=normalize_doi(old.doi) or normalize_doi(item.doi),
@@ -88,6 +168,10 @@ def merge_candidates(batches):
             access_status='open' if 'open' in (old.access_status, item.access_status) else old.access_status or item.access_status,
             metadata=metadata)
     for key, item in list(groups.items()):
+        if len(dois[key]) > 1:
+            item = replace(item, metadata={**item.metadata, 'version_dois': sorted(dois[key]),
+                                          'versions': versions[key]})
+            groups[key] = item
         if len(provenance[key]) > 1:
             groups[key] = replace(item, metadata={**item.metadata, 'provenance': provenance[key]})
     return [groups[key] for key in sorted(groups,

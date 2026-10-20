@@ -275,6 +275,8 @@ class DataCite:
             open_url=url if opened else None,access_status="open" if opened else None,
             abstract_or_snippet=plain([d.get("description","") for d in a.get("descriptions",[])]) or None,source="DataCite",
             metadata={"source_id":v["id"],"language":a.get("language"),"category":"scientific","rights":rights,
+                'related_identifiers':a.get('relatedIdentifiers') or [],
+                'version':a.get('version'),'version_created':a.get('created'),
                 'keywords':'; '.join(s.get('subject','') for s in (a.get('subjects') or []) if s.get('subject'))})
 
 
@@ -424,12 +426,17 @@ class Zenodo:
         if isinstance(typ,dict):typ=typ.get("type")
         url=safe_url(links.get("self_html") or links.get("html")) or "https://zenodo.org/records/"+str(v["id"])
         creators=m.get("creators") or []
+        concept_doi=normalize_doi(v.get('conceptdoi'))
+        if not concept_doi and str(v.get('conceptrecid') or '').isdigit():
+            concept_doi='10.5281/zenodo.'+str(v['conceptrecid'])
         return Material("zenodo:"+str(v["id"]),typ or "dataset",plain(m["title"]),
             tuple(plain(c.get("name") or (c.get("person_or_org") or {}).get("name")) for c in creators),
             year_of(m.get("publication_date")),normalize_doi(v.get("doi") or m.get("doi")),
             url,url if opened else None,"open" if opened else "restricted" if access in ("restricted","closed") else None,
             plain(m.get("description")) or None,"Zenodo",
             {"source_id":v["id"],"category":"scientific","language":m.get("language"),
+             'concept_doi':concept_doi,'related_identifiers':m.get('related_identifiers') or [],
+             'version':m.get('version'),'version_created':v.get('created'),
              "keywords":plain(m.get("keywords")),"files":files,
              **(pdf_metadata(pdf,"Zenodo",documented=True) if opened else {})})
 

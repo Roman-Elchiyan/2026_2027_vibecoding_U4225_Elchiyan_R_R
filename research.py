@@ -232,7 +232,7 @@ class ResearchService:
             for i, length in enumerate(lengths):
                 batches[i] = converted[offset:offset+length]
                 offset += length
-        items = merge_candidates(batches)
+        items = merge_candidates(batches, collapse_versions=False)
         if doi:
             items = [m for m in items if normalize_doi(m.doi) == doi]
         if f.query_mode=='title' and not doi and not identifier_kind:
@@ -253,11 +253,14 @@ class ResearchService:
             if enriched:
                 allowed_dois = {normalize_doi(m.doi) for m in missing}
                 enriched = [[m for m in batch if normalize_doi(m.doi) in allowed_dois] for batch in enriched]
-                items = [m for m in merge_candidates([items] + enriched) if matches(m, f,allow_unknown=True)]
+                items = [m for m in merge_candidates([items] + enriched, collapse_versions=False) if matches(m, f,allow_unknown=True)]
         if self.config.external_sources_enabled:
             items,access_notes=await self.access.enrich(items,deadline)
             warnings.extend(access_notes)
         items=[m for m in items if matches(m,f)]
+        if not doi and not identifier_kind:
+            # Select a version only after strict year/access/language filters.
+            items = merge_candidates([items])
         statistical=[m for m in items if m.metadata.get('category')=='statistics']
         items=[m for m in items if m.metadata.get('category')!='statistics']
         if identifier_kind:
